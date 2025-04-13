@@ -1,6 +1,7 @@
-import { useState, FormEvent, useRef } from 'react';
+import { useState, FormEvent, useRef, ChangeEvent } from 'react';
 import axios from 'axios';
-import { motion, AnimatePresence } from 'framer-motion'; // Add framer-motion for animations
+import { motion, AnimatePresence } from 'framer-motion';
+import { Upload, X, Plus } from 'lucide-react'; // Icons for upload/remove/add
 
 interface QuestionFormProps {
   onSubmit: (results: any) => void;
@@ -8,14 +9,15 @@ interface QuestionFormProps {
 
 const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
   const [questions, setQuestions] = useState<string[]>(['']);
+  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false); // Track submission state
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]); // For focusing new inputs
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleAddQuestion = () => {
     if (questions.length < 5) {
       setQuestions([...questions, '']);
-      // Focus the new input after a slight delay
       setTimeout(() => {
         inputRefs.current[questions.length]?.focus();
       }, 100);
@@ -33,21 +35,53 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
     setQuestions(newQuestions);
   };
 
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      if (selectedFile.type === 'text/plain' || selectedFile.type === 'text/csv') {
+        setFile(selectedFile);
+        setError(null);
+      } else {
+        setError('Please upload a .txt or .csv file.');
+        setFile(null);
+        e.target.value = ''; // Reset input
+      }
+    }
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsSubmitting(true);
 
     try {
-      const response = await axios.post('http://localhost:3000/check-batch', {
-        questions: questions.filter(q => q.trim() !== ''),
-      });
-      onSubmit(response.data.results);
-      // Reset form after successful submission
-      setQuestions(['']);
-      inputRefs.current = [null];
+      if (file) {
+        // Handle file upload
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await axios.post('http://localhost:3000/check-file', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        onSubmit(response.data.results);
+        setFile(null);
+        setQuestions(['']);
+        inputRefs.current = [null];
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } else {
+        // Handle manual questions
+        const filteredQuestions = questions.filter((q) => q.trim() !== '');
+        if (filteredQuestions.length === 0) {
+          throw new Error('Please enter at least one question or upload a file.');
+        }
+        const response = await axios.post('http://localhost:3000/check-batch', {
+          questions: filteredQuestions,
+        });
+        onSubmit(response.data.results);
+        setQuestions(['']);
+        inputRefs.current = [null];
+      }
     } catch (err: any) {
-      setError(err.response?.data?.error || 'An error occurred');
+      setError(err.response?.data?.error || err.message || 'An error occurred');
     } finally {
       setIsSubmitting(false);
     }
@@ -55,29 +89,30 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className="max-w-3xl mx-auto p-8 bg-white shadow-xl rounded-2xl mt-8"
+      transition={{ duration: 0.6, ease: 'easeOut' }}
+      className="w-full bg-white/80 rounded-3xl shadow-2xl p-6 sm:p-8 border border-indigo-100/30 backdrop-blur-md"
     >
-      <h2 className="text-3xl font-extrabold text-gray-900 mb-6 tracking-tight">
-        Submit Your Questions
+      <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6 tracking-tight">
+        Check Question Similarity
       </h2>
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Manual Question Inputs */}
         <AnimatePresence>
           {questions.map((question, index) => (
             <motion.div
               key={index}
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.3 }}
-              className="flex items-center space-x-3"
+              className="flex items-center gap-3"
             >
-              <div className="flex-1 relative">
+              <div className="flex-1">
                 <label
                   htmlFor={`question-${index}`}
-                  className="absolute -top-2 left-3 bg-white px-1 text-sm font-medium text-gray-600"
+                  className="block text-sm font-medium text-gray-700 mb-1"
                 >
                   Question {index + 1}
                 </label>
@@ -87,64 +122,85 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                   value={question}
                   onChange={(e) => handleQuestionChange(index, e.target.value)}
                   placeholder="Enter your question"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors duration-200"
-                  required
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400"
                   ref={(el) => (inputRefs.current[index] = el)}
                   aria-describedby={error && index === 0 ? 'error-message' : undefined}
+                  disabled={isSubmitting || !!file}
                 />
               </div>
               {questions.length > 1 && (
                 <motion.button
                   type="button"
                   onClick={() => handleRemoveQuestion(index)}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors duration-200"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-all duration-200"
                   aria-label={`Remove question ${index + 1}`}
+                  disabled={isSubmitting}
                 >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
+                  <X size={18} />
                 </motion.button>
               )}
             </motion.div>
           ))}
         </AnimatePresence>
-        <div className="flex justify-between items-center">
-          {questions.length < 5 && (
+
+        {/* File Upload */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">
+            Or Upload a File (.txt or .csv)
+          </label>
+          <div className="flex items-center gap-3">
+            <label className="flex-1 cursor-pointer">
+              <input
+                type="file"
+                accept=".txt,.csv"
+                onChange={handleFileChange}
+                className="hidden"
+                ref={fileInputRef}
+                disabled={isSubmitting}
+                aria-describedby={error ? 'error-message' : undefined}
+              />
+              <div
+                className={`flex items-center p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 ${
+                  file ? 'bg-indigo-50 border-indigo-200' : ''
+                } hover:bg-indigo-100 transition-all duration-200`}
+              >
+                <Upload size={18} className="mr-2" />
+                <span>{file ? file.name : 'Choose file'}</span>
+              </div>
+            </label>
+            {file && (
+              <motion.button
+                type="button"
+                onClick={() => {
+                  setFile(null);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-all duration-200"
+                aria-label="Remove file"
+                disabled={isSubmitting}
+              >
+                <X size={18} />
+              </motion.button>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-4 justify-between items-center pt-4">
+          {!file && questions.length < 5 && (
             <motion.button
               type="button"
               onClick={handleAddQuestion}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors duration-200"
+              className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200"
               disabled={isSubmitting}
             >
-              <svg
-                className="w-5 h-5 mr-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
+              <Plus size={18} className="mr-2" />
               Add Question
             </motion.button>
           )}
@@ -153,14 +209,17 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
             type="submit"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors duration-200 disabled:bg-indigo-400 disabled:cursor-not-allowed"
-            disabled={isSubmitting || questions.every(q => q.trim() === '')}
-            aria-label="Check questions"
+            className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 disabled:bg-indigo-300 disabled:cursor-not-allowed"
+            disabled={
+              isSubmitting ||
+              (!file && questions.every((q) => q.trim() === ''))
+            }
+            aria-label="Check similarity"
           >
             {isSubmitting ? (
               <span className="flex items-center">
                 <svg
-                  className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                  className="animate-spin mr-2 h-5 w-5 text-white"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -182,11 +241,13 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                 Checking...
               </span>
             ) : (
-              'Check Questions'
+              'Check Similarity'
             )}
           </motion.button>
         </div>
       </form>
+
+      {/* Error Message */}
       <AnimatePresence>
         {error && (
           <motion.p
@@ -194,7 +255,8 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="mt-4 text-red-600 font-medium"
+            transition={{ duration: 0.3 }}
+            className="mt-4 text-red-500 text-sm font-medium"
             role="alert"
           >
             {error}
