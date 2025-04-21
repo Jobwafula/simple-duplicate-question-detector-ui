@@ -1,7 +1,7 @@
 import { useState, FormEvent, useRef, ChangeEvent } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, X, Plus } from 'lucide-react'; // Icons for upload/remove/add
+import { Upload, X, Plus, Trash2 } from 'lucide-react';
 
 interface QuestionFormProps {
   onSubmit: (results: any) => void;
@@ -9,11 +9,13 @@ interface QuestionFormProps {
 
 const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
   const [questions, setQuestions] = useState<string[]>(['']);
+  const [pastedQuestions, setPastedQuestions] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const handleAddQuestion = () => {
     if (questions.length < 5) {
@@ -35,14 +37,34 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
     setQuestions(newQuestions);
   };
 
+  const handlePastedQuestionsChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setPastedQuestions(e.target.value);
+    setError(null);
+  };
+
+  const handleClearPastedQuestions = () => {
+    setPastedQuestions('');
+    if (textareaRef.current) {
+      textareaRef.current.value = '';
+      textareaRef.current.focus();
+    }
+    setError(null);
+  };
+
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      if (selectedFile.type === 'text/plain' || selectedFile.type === 'text/csv') {
+      const allowedTypes = [
+        'text/plain',
+        'text/csv',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/pdf',
+      ];
+      if (allowedTypes.includes(selectedFile.type)) {
         setFile(selectedFile);
         setError(null);
       } else {
-        setError('Please upload a .txt or .csv file.');
+        setError('Please upload a .txt, .csv, .docx, or .pdf file.');
         setFile(null);
         e.target.value = ''; // Reset input
       }
@@ -63,22 +85,32 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
         onSubmit(response.data.results);
-        setFile(null);
-        setQuestions(['']);
-        inputRefs.current = [null];
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        resetForm();
+      } else if (pastedQuestions.trim()) {
+        // Handle pasted questions
+        const questionList = pastedQuestions
+          .split(/\n\s*\n/) // Split by two or more newlines
+          .map((q) => q.trim().replace(/\n/g, ' ')) // Replace internal newlines with spaces
+          .filter((q) => q !== '');
+        if (questionList.length === 0) {
+          throw new Error('Please enter at least one valid question, separated by double newlines.');
+        }
+        const response = await axios.post('http://localhost:3000/check-batch', {
+          questions: questionList,
+        });
+        onSubmit(response.data.results);
+        resetForm();
       } else {
         // Handle manual questions
         const filteredQuestions = questions.filter((q) => q.trim() !== '');
         if (filteredQuestions.length === 0) {
-          throw new Error('Please enter at least one question or upload a file.');
+          throw new Error('Please enter at least one question, paste questions, or upload a file.');
         }
         const response = await axios.post('http://localhost:3000/check-batch', {
           questions: filteredQuestions,
         });
         onSubmit(response.data.results);
-        setQuestions(['']);
-        inputRefs.current = [null];
+        resetForm();
       }
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'An error occurred');
@@ -86,6 +118,19 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
       setIsSubmitting(false);
     }
   };
+
+  const resetForm = () => {
+    setFile(null);
+    setQuestions(['']);
+    setPastedQuestions('');
+    inputRefs.current = [null];
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (textareaRef.current) textareaRef.current.value = '';
+  };
+
+  const isManualInputDisabled = isSubmitting || !!file || pastedQuestions.trim() !== '';
+  const isFileUploadDisabled = isSubmitting || questions.some((q) => q.trim() !== '') || pastedQuestions.trim() !== '';
+  const isPastedInputDisabled = isSubmitting || !!file || questions.some((q) => q.trim() !== '');
 
   return (
     <motion.div
@@ -99,75 +144,131 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
       </h2>
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Manual Question Inputs */}
-        <AnimatePresence>
-          {questions.map((question, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.3 }}
-              className="flex items-center gap-3"
+        <div>
+          <h3 className="text-lg font-medium text-gray-700 mb-2">Enter Questions Individually</h3>
+          <AnimatePresence>
+            {questions.map((question, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.3 }}
+                className="flex items-center gap-3 mb-3"
+              >
+                <div className="flex-1">
+                  <label
+                    htmlFor={`question-${index}`}
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Question {index + 1}
+                  </label>
+                  <input
+                    id={`question-${index}`}
+                    type="text"
+                    value={question}
+                    onChange={(e) => handleQuestionChange(index, e.target.value)}
+                    placeholder="Enter your question"
+                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400 disabled:bg-gray-200 disabled:cursor-not-allowed"
+                    ref={(el) => (inputRefs.current[index] = el)}
+                    aria-describedby={error && index === 0 ? 'error-message' : undefined}
+                    disabled={isManualInputDisabled}
+                  />
+                </div>
+                {questions.length > 1 && (
+                  <motion.button
+                    type="button"
+                    onClick={() => handleRemoveQuestion(index)}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-all duration-200 disabled:bg-red-300 disabled:cursor-not-allowed"
+                    aria-label={`Remove question ${index + 1}`}
+                    disabled={isManualInputDisabled}
+                  >
+                    <X size={18} />
+                  </motion.button>
+                )}
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          {!file && pastedQuestions.trim() === '' && questions.length < 5 && (
+            <motion.button
+              type="button"
+              onClick={handleAddQuestion}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 mt-2 disabled:bg-indigo-300 disabled:cursor-not-allowed"
+              disabled={isSubmitting}
+              aria-label="Add another question"
             >
-              <div className="flex-1">
-                <label
-                  htmlFor={`question-${index}`}
-                  className="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  Question {index + 1}
-                </label>
-                <input
-                  id={`question-${index}`}
-                  type="text"
-                  value={question}
-                  onChange={(e) => handleQuestionChange(index, e.target.value)}
-                  placeholder="Enter your question"
-                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400"
-                  ref={(el) => (inputRefs.current[index] = el)}
-                  aria-describedby={error && index === 0 ? 'error-message' : undefined}
-                  disabled={isSubmitting || !!file}
-                />
-              </div>
-              {questions.length > 1 && (
-                <motion.button
-                  type="button"
-                  onClick={() => handleRemoveQuestion(index)}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-all duration-200"
-                  aria-label={`Remove question ${index + 1}`}
-                  disabled={isSubmitting}
-                >
-                  <X size={18} />
-                </motion.button>
-              )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
+              <Plus size={18} className="mr-2" />
+              Add Question
+            </motion.button>
+          )}
+        </div>
+
+        {/* Pasted Questions Textarea */}
+        <div className="space-y-2">
+          <h3 className="text-lg font-medium text-gray-700">Paste Multiple Questions</h3>
+          <div className="flex items-start gap-3">
+            <div className="flex-1">
+              <label
+                htmlFor="pasted-questions"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Questions (separate with double newlines)
+              </label>
+              <textarea
+                id="pasted-questions"
+                value={pastedQuestions}
+                onChange={handlePastedQuestionsChange}
+                placeholder={`Paste questions here, separated by double newlines. Example:\n\nWhat is the capital of France?\n\nWhat is the largest planet in our solar system?\nIts diameter is about 11 times that of Earth.`}
+                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400 resize-y h-40 disabled:bg-gray-200 disabled:cursor-not-allowed"
+                ref={textareaRef}
+                aria-describedby={error ? 'error-message' : undefined}
+                disabled={isPastedInputDisabled}
+              />
+              <p className="mt-1 text-sm text-gray-500">
+                Each question can span multiple lines. Use two or more blank lines to separate questions.
+              </p>
+            </div>
+            {pastedQuestions.trim() && (
+              <motion.button
+                type="button"
+                onClick={handleClearPastedQuestions}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-all duration-200 mt-8 disabled:bg-red-300 disabled:cursor-not-allowed"
+                aria-label="Clear pasted questions"
+                disabled={isSubmitting}
+              >
+                <Trash2 size={18} />
+              </motion.button>
+            )}
+          </div>
+        </div>
 
         {/* File Upload */}
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700">
-            Or Upload a File (.txt or .csv)
-          </label>
+          <h3 className="text-lg font-medium text-gray-700">Or Upload a File</h3>
           <div className="flex items-center gap-3">
             <label className="flex-1 cursor-pointer">
               <input
                 type="file"
-                accept=".txt,.csv"
+                accept=".txt,.csv,.docx,.pdf"
                 onChange={handleFileChange}
                 className="hidden"
                 ref={fileInputRef}
-                disabled={isSubmitting}
+                disabled={isFileUploadDisabled}
                 aria-describedby={error ? 'error-message' : undefined}
               />
               <div
                 className={`flex items-center p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 ${
                   file ? 'bg-indigo-50 border-indigo-200' : ''
-                } hover:bg-indigo-100 transition-all duration-200`}
+                } hover:bg-indigo-100 transition-all duration-200 disabled:bg-gray-200 disabled:cursor-not-allowed`}
               >
                 <Upload size={18} className="mr-2" />
-                <span>{file ? file.name : 'Choose file'}</span>
+                <span>{file ? file.name : 'Choose file (.txt, .csv, .docx, .pdf)'}</span>
               </div>
             </label>
             {file && (
@@ -179,7 +280,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                 }}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-all duration-200"
+                className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-all duration-200 disabled:bg-red-300 disabled:cursor-not-allowed"
                 aria-label="Remove file"
                 disabled={isSubmitting}
               >
@@ -190,21 +291,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
         </div>
 
         {/* Actions */}
-        <div className="flex gap-4 justify-between items-center pt-4">
-          {!file && questions.length < 5 && (
-            <motion.button
-              type="button"
-              onClick={handleAddQuestion}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200"
-              disabled={isSubmitting}
-            >
-              <Plus size={18} className="mr-2" />
-              Add Question
-            </motion.button>
-          )}
-          <div className="flex-1" />
+        <div className="flex gap-4 justify-end items-center pt-4">
           <motion.button
             type="submit"
             whileHover={{ scale: 1.05 }}
@@ -212,7 +299,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 disabled:bg-indigo-300 disabled:cursor-not-allowed"
             disabled={
               isSubmitting ||
-              (!file && questions.every((q) => q.trim() === ''))
+              (!file && questions.every((q) => q.trim() === '') && !pastedQuestions.trim())
             }
             aria-label="Check similarity"
           >
