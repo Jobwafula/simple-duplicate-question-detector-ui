@@ -1,15 +1,16 @@
-import { useState, FormEvent, useRef, ChangeEvent } from 'react';
-import axios from 'axios';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, X, Plus, Trash2 } from 'lucide-react';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useState, FormEvent, useRef, ChangeEvent } from "react";
+import axios from "axios";
+import { motion, AnimatePresence } from "framer-motion";
+import { Upload, X, Plus, Trash2 } from "lucide-react";
 
 interface QuestionFormProps {
   onSubmit: (results: any) => void;
 }
 
 const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
-  const [questions, setQuestions] = useState<string[]>(['']);
-  const [pastedQuestions, setPastedQuestions] = useState<string>('');
+  const [questions, setQuestions] = useState<string[]>([""]);
+  const [pastedQuestions, setPastedQuestions] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -19,7 +20,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
 
   const handleAddQuestion = () => {
     if (questions.length < 5) {
-      setQuestions([...questions, '']);
+      setQuestions([...questions, ""]);
       setTimeout(() => {
         inputRefs.current[questions.length]?.focus();
       }, 100);
@@ -43,9 +44,9 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
   };
 
   const handleClearPastedQuestions = () => {
-    setPastedQuestions('');
+    setPastedQuestions("");
     if (textareaRef.current) {
-      textareaRef.current.value = '';
+      textareaRef.current.value = "";
       textareaRef.current.focus();
     }
     setError(null);
@@ -55,21 +56,47 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       const allowedTypes = [
-        'text/plain',
-        'text/csv',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/pdf',
+        // "text/plain",
+        // "text/csv",
+        // "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        // "application/pdf",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       ];
       if (allowedTypes.includes(selectedFile.type)) {
         setFile(selectedFile);
         setError(null);
       } else {
-        setError('Please upload a .txt, .csv, .docx, or .pdf file.');
+        // setError("Please upload a .txt, .csv, .docx, .xlsx or .pdf file.");
+        setError("Please upload a an excel file.");
         setFile(null);
-        e.target.value = ''; // Reset input
+        e.target.value = ""; // Reset input
       }
     }
   };
+
+  //   const handleUpload = async (file) => {
+  //   const formData = new FormData();
+  //   formData.append('file', file);
+
+  //   const response = await fetch('http://localhost:3000/upload', {
+  //     method: 'POST',
+  //     body: formData,
+  //   });
+
+  //   if (response.status === 200 && response.headers.get('Content-Disposition')) {
+  //     const blob = await response.blob();
+  //     const url = window.URL.createObjectURL(blob);
+  //     const a = document.createElement('a');
+  //     a.href = url;
+  //     a.download = 'filtered_questions.xlsx';
+  //     a.click();
+  //     window.URL.revokeObjectURL(url);
+  //   } else {
+  //     const message = await response.text();
+  //     alert(message); // "No duplicates found"
+  //   }
+  // };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -80,40 +107,73 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
       if (file) {
         // Handle file upload
         const formData = new FormData();
-        formData.append('file', file);
-        const response = await axios.post('http://localhost:3000/check-file', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
+        formData.append("file", file);
+        // const response = await axios.post(
+        //   "http://localhost:3000/upload",
+        //   formData,
+        //   {
+        //     headers: { "Content-Type": "multipart/form-data" },
+        //   }
+        // );
+        const response = await fetch("http://localhost:3000/upload", {
+          method: "POST",
+          body: formData,
         });
-        onSubmit(response.data.results);
-        resetForm();
+
+        const contentType = response.headers.get("Content-Type");
+
+        if (
+          response.ok &&
+          contentType?.includes(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          )
+        ) {
+          // Excel file response
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "filtered_questions.xlsx";
+          a.click();
+          window.URL.revokeObjectURL(url);
+        } else {
+          // Plain text or JSON message
+          const message = await response.text();
+          setError(message);
+          resetForm();
+        }
       } else if (pastedQuestions.trim()) {
         // Handle pasted questions
         const questionList = pastedQuestions
           .split(/\n\s*\n/) // Split by two or more newlines
-          .map((q) => q.trim().replace(/\n/g, ' ')) // Replace internal newlines with spaces
-          .filter((q) => q !== '');
+          .map((q) => q.trim().replace(/\n/g, " ")) // Replace internal newlines with spaces
+          .filter((q) => q !== "");
         if (questionList.length === 0) {
-          throw new Error('Please enter at least one valid question, separated by double newlines.');
+          throw new Error(
+            "Please enter at least one valid question, separated by double newlines."
+          );
         }
-        const response = await axios.post('http://localhost:3000/check-batch', {
+        const response = await axios.post("http://localhost:3000/check-batch", {
           questions: questionList,
         });
         onSubmit(response.data.results);
         resetForm();
       } else {
         // Handle manual questions
-        const filteredQuestions = questions.filter((q) => q.trim() !== '');
+        const filteredQuestions = questions.filter((q) => q.trim() !== "");
         if (filteredQuestions.length === 0) {
-          throw new Error('Please enter at least one question, paste questions, or upload a file.');
+          throw new Error(
+            "Please enter at least one question, paste questions, or upload a file."
+          );
         }
-        const response = await axios.post('http://localhost:3000/check-batch', {
+        const response = await axios.post("http://localhost:3000/check-batch", {
           questions: filteredQuestions,
         });
         onSubmit(response.data.results);
         resetForm();
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'An error occurred');
+      setError(err.response?.data?.error || err.message || "An error occurred");
     } finally {
       setIsSubmitting(false);
     }
@@ -121,22 +181,27 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
 
   const resetForm = () => {
     setFile(null);
-    setQuestions(['']);
-    setPastedQuestions('');
+    setQuestions([""]);
+    setPastedQuestions("");
     inputRefs.current = [null];
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    if (textareaRef.current) textareaRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (textareaRef.current) textareaRef.current.value = "";
   };
 
-  const isManualInputDisabled = isSubmitting || !!file || pastedQuestions.trim() !== '';
-  const isFileUploadDisabled = isSubmitting || questions.some((q) => q.trim() !== '') || pastedQuestions.trim() !== '';
-  const isPastedInputDisabled = isSubmitting || !!file || questions.some((q) => q.trim() !== '');
+  const isManualInputDisabled =
+    isSubmitting || !!file || pastedQuestions.trim() !== "";
+  const isFileUploadDisabled =
+    isSubmitting ||
+    questions.some((q) => q.trim() !== "") ||
+    pastedQuestions.trim() !== "";
+  const isPastedInputDisabled =
+    isSubmitting || !!file || questions.some((q) => q.trim() !== "");
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6, ease: 'easeOut' }}
+      transition={{ duration: 0.6, ease: "easeOut" }}
       className="w-full bg-white/80 rounded-3xl shadow-2xl p-6 sm:p-8 border border-indigo-100/30 backdrop-blur-md"
     >
       <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6 tracking-tight">
@@ -145,7 +210,9 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Manual Question Inputs */}
         <div>
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Enter Questions Individually</h3>
+          <h3 className="text-lg font-medium text-gray-700 mb-2">
+            Enter Questions Individually
+          </h3>
           <AnimatePresence>
             {questions.map((question, index) => (
               <motion.div
@@ -167,11 +234,15 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                     id={`question-${index}`}
                     type="text"
                     value={question}
-                    onChange={(e) => handleQuestionChange(index, e.target.value)}
+                    onChange={(e) =>
+                      handleQuestionChange(index, e.target.value)
+                    }
                     placeholder="Enter your question"
                     className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400 disabled:bg-gray-200 disabled:cursor-not-allowed"
-                    ref={(el) => (inputRefs.current[index] = el)}
-                    aria-describedby={error && index === 0 ? 'error-message' : undefined}
+                    ref={(el: any) => (inputRefs.current[index] = el)}
+                    aria-describedby={
+                      error && index === 0 ? "error-message" : undefined
+                    }
                     disabled={isManualInputDisabled}
                   />
                 </div>
@@ -191,7 +262,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
               </motion.div>
             ))}
           </AnimatePresence>
-          {!file && pastedQuestions.trim() === '' && questions.length < 5 && (
+          {!file && pastedQuestions.trim() === "" && questions.length < 5 && (
             <motion.button
               type="button"
               onClick={handleAddQuestion}
@@ -209,7 +280,9 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
 
         {/* Pasted Questions Textarea */}
         <div className="space-y-2">
-          <h3 className="text-lg font-medium text-gray-700">Paste Multiple Questions</h3>
+          <h3 className="text-lg font-medium text-gray-700">
+            Paste Multiple Questions
+          </h3>
           <div className="flex items-start gap-3">
             <div className="flex-1">
               <label
@@ -225,11 +298,12 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                 placeholder={`Paste questions here, separated by double newlines. Example:\n\nWhat is the capital of France?\n\nWhat is the largest planet in our solar system?\nIts diameter is about 11 times that of Earth.`}
                 className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400 resize-y h-40 disabled:bg-gray-200 disabled:cursor-not-allowed"
                 ref={textareaRef}
-                aria-describedby={error ? 'error-message' : undefined}
+                aria-describedby={error ? "error-message" : undefined}
                 disabled={isPastedInputDisabled}
               />
               <p className="mt-1 text-sm text-gray-500">
-                Each question can span multiple lines. Use two or more blank lines to separate questions.
+                Each question can span multiple lines. Use two or more blank
+                lines to separate questions.
               </p>
             </div>
             {pastedQuestions.trim() && (
@@ -250,25 +324,33 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
 
         {/* File Upload */}
         <div className="space-y-2">
-          <h3 className="text-lg font-medium text-gray-700">Or Upload a File</h3>
+          <h3 className="text-lg font-medium text-gray-700">
+            Or Upload a File
+          </h3>
           <div className="flex items-center gap-3">
             <label className="flex-1 cursor-pointer">
               <input
                 type="file"
-                accept=".txt,.csv,.docx,.pdf"
+                // accept=".txt,.csv,.docx,.pdf,.xls,.xlsx"
+                accept=".txt,.csv,.docx,.pdf,.xls,.xlsx"
                 onChange={handleFileChange}
                 className="hidden"
                 ref={fileInputRef}
                 disabled={isFileUploadDisabled}
-                aria-describedby={error ? 'error-message' : undefined}
+                aria-describedby={error ? "error-message" : undefined}
               />
               <div
                 className={`flex items-center p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-600 ${
-                  file ? 'bg-indigo-50 border-indigo-200' : ''
+                  file ? "bg-indigo-50 border-indigo-200" : ""
                 } hover:bg-indigo-100 transition-all duration-200 disabled:bg-gray-200 disabled:cursor-not-allowed`}
               >
                 <Upload size={18} className="mr-2" />
-                <span>{file ? file.name : 'Choose file (.txt, .csv, .docx, .pdf)'}</span>
+                <span>
+                  {file
+                    ? file.name
+                    : // : "Choose file (.txt, .csv, .docx, .xlsx, .pdf)"}
+                      "Choose file (.xls, .xlsx, or excel file)"}
+                </span>
               </div>
             </label>
             {file && (
@@ -276,7 +358,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                 type="button"
                 onClick={() => {
                   setFile(null);
-                  if (fileInputRef.current) fileInputRef.current.value = '';
+                  if (fileInputRef.current) fileInputRef.current.value = "";
                 }}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
@@ -299,7 +381,9 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
             className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 disabled:bg-indigo-300 disabled:cursor-not-allowed"
             disabled={
               isSubmitting ||
-              (!file && questions.every((q) => q.trim() === '') && !pastedQuestions.trim())
+              (!file &&
+                questions.every((q) => q.trim() === "") &&
+                !pastedQuestions.trim())
             }
             aria-label="Check similarity"
           >
@@ -328,7 +412,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                 Checking...
               </span>
             ) : (
-              'Check Similarity'
+              "Check Similarity"
             )}
           </motion.button>
         </div>
