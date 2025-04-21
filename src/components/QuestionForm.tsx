@@ -332,7 +332,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
               <input
                 type="file"
                 // accept=".txt,.csv,.docx,.pdf,.xls,.xlsx"
-                accept=".txt,.csv,.docx,.pdf,.xls,.xlsx"
+                accept=".xls,.xlsx"
                 onChange={handleFileChange}
                 className="hidden"
                 ref={fileInputRef}
