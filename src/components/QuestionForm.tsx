@@ -56,10 +56,6 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       const allowedTypes = [
-        // "text/plain",
-        // "text/csv",
-        // "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        // "application/pdf",
         "application/vnd.ms-excel",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       ];
@@ -67,36 +63,12 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
         setFile(selectedFile);
         setError(null);
       } else {
-        // setError("Please upload a .txt, .csv, .docx, .xlsx or .pdf file.");
-        setError("Please upload a an excel file.");
+        setError("Please upload an Excel file (.xls, .xlsx).");
         setFile(null);
-        e.target.value = ""; // Reset input
+        e.target.value = "";
       }
     }
   };
-
-  //   const handleUpload = async (file) => {
-  //   const formData = new FormData();
-  //   formData.append('file', file);
-
-  //   const response = await fetch('http://localhost:3000/upload', {
-  //     method: 'POST',
-  //     body: formData,
-  //   });
-
-  //   if (response.status === 200 && response.headers.get('Content-Disposition')) {
-  //     const blob = await response.blob();
-  //     const url = window.URL.createObjectURL(blob);
-  //     const a = document.createElement('a');
-  //     a.href = url;
-  //     a.download = 'filtered_questions.xlsx';
-  //     a.click();
-  //     window.URL.revokeObjectURL(url);
-  //   } else {
-  //     const message = await response.text();
-  //     alert(message); // "No duplicates found"
-  //   }
-  // };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -108,45 +80,21 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
         // Handle file upload
         const formData = new FormData();
         formData.append("file", file);
-        // const response = await axios.post(
-        //   "http://localhost:3000/upload",
-        //   formData,
-        //   {
-        //     headers: { "Content-Type": "multipart/form-data" },
-        //   }
-        // );
-        const response = await fetch("http://localhost:3000/upload", {
-          method: "POST",
-          body: formData,
+        const response = await axios.post("http://localhost:3000/upload", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
         });
 
-        const contentType = response.headers.get("Content-Type");
-
-        if (
-          response.ok &&
-          contentType?.includes(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          )
-        ) {
-          // Excel file response
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "filtered_questions.xlsx";
-          a.click();
-          window.URL.revokeObjectURL(url);
+        if (response.data.success) {
+          onSubmit(response.data.results);
         } else {
-          // Plain text or JSON message
-          const message = await response.text();
-          setError(message);
-          resetForm();
+          setError(response.data.error || "An error occurred while processing the file.");
         }
+        resetForm();
       } else if (pastedQuestions.trim()) {
         // Handle pasted questions
         const questionList = pastedQuestions
-          .split(/\n\s*\n/) // Split by two or more newlines
-          .map((q) => q.trim().replace(/\n/g, " ")) // Replace internal newlines with spaces
+          .split(/\n\s*\n/)
+          .map((q) => q.trim().replace(/\n/g, " "))
           .filter((q) => q !== "");
         if (questionList.length === 0) {
           throw new Error(
@@ -238,7 +186,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                       handleQuestionChange(index, e.target.value)
                     }
                     placeholder="Enter your question"
-                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400 disabled:bg-gray-200 disabled:cursor-not-allowed"
+                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400 disabled:bg-gray-200 disabled:HUD-400 disabled:cursor-not-allowed"
                     ref={(el: any) => (inputRefs.current[index] = el)}
                     aria-describedby={
                       error && index === 0 ? "error-message" : undefined
@@ -331,7 +279,6 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
             <label className="flex-1 cursor-pointer">
               <input
                 type="file"
-                // accept=".txt,.csv,.docx,.pdf,.xls,.xlsx"
                 accept=".xls,.xlsx"
                 onChange={handleFileChange}
                 className="hidden"
@@ -346,10 +293,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
               >
                 <Upload size={18} className="mr-2" />
                 <span>
-                  {file
-                    ? file.name
-                    : // : "Choose file (.txt, .csv, .docx, .xlsx, .pdf)"}
-                      "Choose file (.xls, .xlsx, or excel file)"}
+                  {file ? file.name : "Choose file (.xls, .xlsx)"}
                 </span>
               </div>
             </label>

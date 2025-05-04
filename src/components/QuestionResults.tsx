@@ -2,93 +2,82 @@ import { useState } from 'react';
 import { QuestionResult } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, AlertTriangle, CheckCircle } from 'lucide-react';
-import jsPDF from 'jspdf';
-import { Document, Packer, Paragraph, TextRun } from 'docx';
+import * as XLSX from 'xlsx';
+import axios from 'axios';
 
 interface QuestionResultsProps {
   results: QuestionResult[];
+  cleanedFilePath?: string;
 }
 
-const QuestionResults: React.FC<QuestionResultsProps> = ({ results }) => {
-  const [downloadFormat, setDownloadFormat] = useState<'pdf' | 'docx' | 'txt'>('pdf');
+const QuestionResults: React.FC<QuestionResultsProps> = ({ results, cleanedFilePath }) => {
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Filter unique and similar questions
   const uniqueQuestions = results.filter((result) => !result.isDuplicate);
   const similarQuestions = results.filter((result) => result.isDuplicate);
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (uniqueQuestions.length === 0) {
       setDownloadError('No unique questions to download.');
       return;
     }
 
-    const content = uniqueQuestions.map((q) => q.question).join('\n');
-    const fileName = `unique_questions.${downloadFormat}`;
+    const fileName = `unique_questions.xlsx`;
 
     try {
       setDownloadError(null);
-      if (downloadFormat === 'pdf') {
-        const doc = new jsPDF();
-        doc.setFontSize(12);
-        doc.text('Unique Questions', 20, 20);
-        let y = 30;
-        uniqueQuestions.forEach((q, index) => {
-          // Split long questions to fit page
-          const lines = doc.splitTextToSize(`${index + 1}. ${q.question}`, 170);
-          lines.forEach((line: string) => {
-            doc.text(line, 20, y);
-            y += 7;
-            if (y > 270) {
-              doc.addPage();
-              y = 20;
-            }
-          });
-        });
-        doc.save(fileName);
-      } else if (downloadFormat === 'docx') {
-        const doc = new Document({
-          sections: [
-            {
-              properties: {},
-              children: [
-                new Paragraph({
-                  children: [new TextRun({ text: 'Unique Questions', bold: true, size: 24 })],
-                }),
-                ...uniqueQuestions.map(
-                  (q, index) =>
-                    new Paragraph({
-                      children: [new TextRun({ text: `${index + 1}. ${q.question}`, size: 20 })],
-                      spacing: { after: 200 },
-                    })
-                ),
-              ],
-            },
-          ],
-        });
-        const blob = await Packer.toBlob(doc);
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      } else {
-        // TXT
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }
+      
+      // Prepare data for Excel
+      const data = uniqueQuestions.map((q, index) => ({
+        '#': index + 1,
+        'Question': q.question,
+        ...(q.rowData && typeof q.rowData === 'object' ? q.rowData : {})
+      }));
+
+      // Create workbook and worksheet
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      
+      // Auto-size columns
+      const colWidths = Object.keys(data[0]).map(key => ({
+        wch: Math.max(
+          ...data.map(row => 
+            String(row[key] || '').length
+          ),
+          key.length
+        ) + 2
+      }));
+      worksheet['!cols'] = colWidths;
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Unique Questions");
+      XLSX.writeFile(workbook, fileName);
     } catch (err) {
-      setDownloadError('Failed to generate file. Please try again.');
+      setDownloadError('Failed to generate Excel file. Please try again.');
+      console.error('Download failed:', err);
+    }
+  };
+
+  const handleDownloadCleanedFile = async () => {
+    try {
+      if (!cleanedFilePath) {
+        setDownloadError('No cleaned file available for download.');
+        return;
+      }
+
+      const response = await axios.get(`http://localhost:3000/download/${cleanedFilePath}`, {
+        responseType: 'blob'
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', cleanedFilePath);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      setDownloadError('Failed to download cleaned file. Please try again.');
       console.error('Download failed:', err);
     }
   };
@@ -146,29 +135,29 @@ const QuestionResults: React.FC<QuestionResultsProps> = ({ results }) => {
                 Unique Questions ({uniqueQuestions.length})
               </h3>
               {uniqueQuestions.length > 0 && (
-                <div className="flex items-center gap-3">
-                  <select
-                    value={downloadFormat}
-                    onChange={(e) =>
-                      setDownloadFormat(e.target.value as 'pdf' | 'docx' | 'txt')
-                    }
-                    className="p-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                    aria-label="Select download format"
-                  >
-                    <option value="pdf">PDF</option>
-                    <option value="docx">DOCX</option>
-                    <option value="txt">TXT</option>
-                  </select>
+                <div className="flex gap-2">
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={handleDownload}
                     className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-sm"
-                    aria-label="Download unique questions"
+                    aria-label="Download unique questions as Excel"
                   >
                     <Download className="mr-2" size={16} aria-hidden="true" />
-                    Download
+                    Download Results
                   </motion.button>
+                  {cleanedFilePath && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={handleDownloadCleanedFile}
+                      className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-400 transition-all duration-200 text-sm"
+                      aria-label="Download cleaned original file"
+                    >
+                      <Download className="mr-2" size={16} aria-hidden="true" />
+                      Download Cleaned File
+                    </motion.button>
+                  )}
                 </div>
               )}
             </div>
