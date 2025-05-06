@@ -3,12 +3,22 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Download, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react';
 import axios from 'axios';
 
+interface SimilarityExplanation {
+  type?: string;
+  words?: string[];
+  count?: number;
+  text?: string;
+}
+
 interface QuestionResult {
   question: string;
   isDuplicate: boolean;
   mostSimilarQuestion: string | null;
   similarityScore: number | null;
+  similarityExplanation?: (SimilarityExplanation | string)[];
+  semanticAnalysis?: string;
   rowData?: Record<string, any>;
+  originalIndex?: number;
 }
 
 interface QuestionResultsProps {
@@ -20,7 +30,7 @@ interface QuestionResultsProps {
     uniqueQuestions?: number;
     processingTime?: string;
   };
-  onResetSuccess?: () => void; // Callback for when reset is successful
+  onResetSuccess?: () => void;
 }
 
 const QuestionResults: React.FC<QuestionResultsProps> = ({ 
@@ -43,24 +53,77 @@ const QuestionResults: React.FC<QuestionResultsProps> = ({
     originalIndex: index + 1,
   }));
 
-  const uniqueQuestions = indexedResults.filter((result) => !result.isDuplicate);
-  const similarQuestions = indexedResults.filter((result) => result.isDuplicate);
-
-  // Create a map of duplicate relationships
-  const duplicateMap = new Map<number, {index: number, question: string}>();
-  similarQuestions.forEach((dup) => {
-    if (dup.mostSimilarQuestion) {
-      const original = uniqueQuestions.find(
-        (q) => q.question === dup.mostSimilarQuestion
+  // Create a map of duplicate relationships for reference
+  const duplicateMap = new Map<number, { index: number, question: string }>();
+  indexedResults.forEach((result) => {
+    if (result.isDuplicate && result.mostSimilarQuestion) {
+      const original = indexedResults.find(
+        (q) => q.question === result.mostSimilarQuestion && !q.isDuplicate
       );
       if (original) {
-        duplicateMap.set(dup.originalIndex, {
-          index: original.originalIndex,
+        duplicateMap.set(result.originalIndex!, {
+          index: original.originalIndex!,
           question: original.question
         });
       }
     }
   });
+
+  const renderSimilarityExplanation = (explanation: (SimilarityExplanation | string)[] = []) => {
+    return explanation.map((item, idx) => {
+      if (typeof item === 'string') {
+        return (
+          <div key={idx} className="mt-1 text-xs text-gray-600">
+            <span className="font-medium">Reason:</span> {item}
+          </div>
+        );
+      } else {
+        switch (item.type) {
+          case "common_words":
+            return (
+              <div key={idx} className="mt-1 text-xs text-gray-600">
+                <span className="font-medium">Common words:</span> {item.words?.join(', ')} 
+                {item.count && item.count > 3 && ` (${item.count} words in common)`}
+              </div>
+            );
+          case "similar_start":
+            return (
+              <div key={idx} className="mt-1 text-xs text-gray-600">
+                <span className="font-medium">Same beginning:</span> "{item.text}..."
+              </div>
+            );
+          case "similar_end":
+            return (
+              <div key={idx} className="mt-1 text-xs text-gray-600">
+                <span className="font-medium">Same ending:</span> "...{item.text}"
+              </div>
+            );
+          case "same_question_structure":
+            return (
+              <div key={idx} className="mt-1 text-xs text-gray-600">
+                Both questions follow the same question structure
+              </div>
+            );
+          default:
+            return null;
+        }
+      }
+    });
+  };
+
+  const highlightCommonWords = (text: string, commonWords: string[] = []) => {
+    if (!commonWords || commonWords.length === 0) return text;
+    
+    return text.split(/(\s+)/).map((word, i) => (
+      <span 
+        key={i} 
+        className={commonWords.includes(word.toLowerCase().replace(/[^\w]/g, '')) ? 
+          "bg-yellow-100 px-1 rounded" : ""}
+      >
+        {word}
+      </span>
+    ));
+  };
 
   const handleDownloadCleanedFile = async () => {
     try {
@@ -106,12 +169,10 @@ const QuestionResults: React.FC<QuestionResultsProps> = ({
       if (response.data.success) {
         setResetStatus({ loading: false, error: null, success: true });
         
-        // Call the success callback if provided
         if (onResetSuccess) {
           onResetSuccess();
         }
         
-        // Auto-hide success message after 3 seconds
         setTimeout(() => {
           setResetStatus(prev => ({ ...prev, success: false }));
         }, 3000);
@@ -229,58 +290,17 @@ const QuestionResults: React.FC<QuestionResultsProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Similar Questions Notification - With Question Numbers */}
-      {similarQuestions.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 mb-6"
-          role="alert"
-        >
-          <AlertTriangle className="text-red-500 flex-shrink-0" size={24} />
-          <div>
-            <h3 className="text-lg font-semibold text-red-700">
-              Similar Questions Detected ({similarQuestions.length})
-            </h3>
-            <ul className="mt-2 space-y-2 text-sm text-gray-700">
-              {similarQuestions.slice(0, 5).map((result) => {
-                const duplicateInfo = duplicateMap.get(result.originalIndex);
-                return (
-                  <li key={result.originalIndex}>
-                    <span className="font-medium">Question #{result.originalIndex}: "{result.question}"</span> is similar to
-                    {duplicateInfo ? (
-                      <span> Question #{duplicateInfo.index}: "{duplicateInfo.question}"</span>
-                    ) : (
-                      <span> "{result.mostSimilarQuestion ?? 'another question'}"</span>
-                    )}
-                    {result.similarityScore !== undefined && result.similarityScore !== null && (
-                      <span> ({`${(result.similarityScore * 100).toFixed(2)}%`} similarity)</span>
-                    )}
-                  </li>
-                );
-              })}
-              {similarQuestions.length > 5 && (
-                <li className="text-gray-500">
-                  + {similarQuestions.length - 5} more similar questions...
-                </li>
-              )}
-            </ul>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Unique Questions Section */}
+      {/* All Questions with Similarity Analysis */}
       <div className="mt-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
           <h3 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
             <CheckCircle className="text-green-500" size={20} />
-            Unique Questions ({uniqueQuestions.length})
+            Question Analysis ({indexedResults.length})
           </h3>
         </div>
 
-        {uniqueQuestions.length === 0 ? (
-          <p className="text-gray-500 text-sm py-2">No unique questions found.</p>
+        {indexedResults.length === 0 ? (
+          <p className="text-gray-500 text-sm py-2">No questions analyzed.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -292,19 +312,78 @@ const QuestionResults: React.FC<QuestionResultsProps> = ({
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Question
                   </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Most Similar Question
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Similarity Score
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Analysis
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {uniqueQuestions.map((result) => (
-                  <tr key={result.originalIndex} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {result.originalIndex}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {result.question}
-                    </td>
-                  </tr>
-                ))}
+                {indexedResults.map((result) => {
+                  const commonWords = result.similarityExplanation
+                    ?.filter((e): e is SimilarityExplanation => typeof e !== 'string' && e.type === "common_words")
+                    .flatMap(e => e.words || []) || [];
+                  const duplicateInfo = duplicateMap.get(result.originalIndex!);
+
+                  return (
+                    <tr key={result.originalIndex} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {result.originalIndex}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {highlightCommonWords(result.question, commonWords)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <span className={result.isDuplicate ? "text-red-600" : "text-green-600"}>
+                          {result.isDuplicate ? "Duplicate" : "Unique"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {duplicateInfo ? (
+                          <span>
+                            Question #{duplicateInfo.index}: {highlightCommonWords(duplicateInfo.question, commonWords)}
+                          </span>
+                        ) : result.mostSimilarQuestion ? (
+                          highlightCommonWords(result.mostSimilarQuestion, commonWords)
+                        ) : (
+                          "None"
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {result.similarityScore !== null && result.similarityScore !== undefined
+                          ? `${(result.similarityScore * 100).toFixed(2)}%`
+                          : "N/A"}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {result.similarityExplanation && result.similarityExplanation.length > 0 && (
+                          <div className="mb-2">
+                            <div className="font-medium text-gray-700">Reasons:</div>
+                            {renderSimilarityExplanation(result.similarityExplanation)}
+                          </div>
+                        )}
+                        {result.semanticAnalysis && (
+                          <div>
+                            <div className="font-medium text-gray-700">Detailed Analysis:</div>
+                            <div className="text-gray-600">{result.semanticAnalysis}</div>
+                          </div>
+                        )}
+                        {!result.similarityExplanation?.length && !result.semanticAnalysis && (
+                          <div className="text-gray-600">
+                            {result.isDuplicate ? "Similar to another question." : "No significant similarity detected."}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
