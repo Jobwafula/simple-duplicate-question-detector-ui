@@ -14,6 +14,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -74,14 +75,23 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
     e.preventDefault();
     setError(null);
     setIsSubmitting(true);
+    setUploadProgress(0);
 
     try {
       if (file) {
-        // Handle file upload
+        // Handle file upload with progress
         const formData = new FormData();
         formData.append("file", file);
         const response = await axios.post("http://localhost:3000/upload", formData, {
           headers: { "Content-Type": "multipart/form-data" },
+          onUploadProgress: (progressEvent) => {
+            if (progressEvent.total) {
+              const percentCompleted = Math.round(
+                (progressEvent.loaded * 100) / progressEvent.total
+              );
+              setUploadProgress(percentCompleted);
+            }
+          },
         });
 
         if (response.data.success) {
@@ -124,6 +134,7 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
       setError(err.response?.data?.error || err.message || "An error occurred");
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(0);
     }
   };
 
@@ -186,8 +197,8 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
                       handleQuestionChange(index, e.target.value)
                     }
                     placeholder="Enter your question"
-                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400 disabled:bg-gray-200 disabled:HUD-400 disabled:cursor-not-allowed"
-                    ref={(el: any) => (inputRefs.current[index] = el)}
+                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all duration-200 text-gray-900 placeholder-gray-400 disabled:bg-gray-200 disabled:cursor-not-allowed"
+                    ref={(el) => (inputRefs.current[index] = el)}
                     aria-describedby={
                       error && index === 0 ? "error-message" : undefined
                     }
@@ -315,6 +326,33 @@ const QuestionForm: React.FC<QuestionFormProps> = ({ onSubmit }) => {
             )}
           </div>
         </div>
+
+        {/* Progress Bar */}
+        <AnimatePresence>
+          {isSubmitting && file && uploadProgress > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="mt-4"
+            >
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Upload Progress
+              </label>
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <motion.div
+                  className="bg-indigo-600 h-2.5 rounded-full"
+                  style={{ width: `${uploadProgress}%` }}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${uploadProgress}%` }}
+                  transition={{ duration: 0.2 }}
+                />
+              </div>
+              <p className="text-sm text-gray-500 mt-1">{uploadProgress}%</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Actions */}
         <div className="flex gap-4 justify-end items-center pt-4">
